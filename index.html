@@ -219,7 +219,53 @@
     font-size: .86rem; color: var(--warn);
   }
 
-  /* FLASHCARDS */
+  /* PROGRESS BADGES ON EXAM CARDS */
+  .card.variant { position: relative; }
+  .card-progress {
+    margin-top: 6px; font-size: .78rem; color: var(--muted);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .card-progress .best { color: var(--success); font-weight: 700; }
+  .card-progress .attempts { color: var(--muted); }
+
+  /* GLOBAL STATS BOX */
+  .stats-bar {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    background: var(--primary-light); border-radius: var(--radius);
+    padding: 12px 16px; margin-bottom: 8px; font-size: .85rem;
+  }
+  .stats-bar .stat { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 70px; }
+  .stats-bar .stat-val { font-size: 1.3rem; font-weight: 800; color: var(--primary); }
+  .stats-bar .stat-lbl { color: var(--muted); font-size: .75rem; }
+
+  /* TOPIC CARD PROGRESS */
+  .topic-prog-bar-wrap { margin-top: 8px; }
+  .topic-prog-bar {
+    height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+  }
+  .topic-prog-fill {
+    height: 100%; border-radius: 3px; transition: width .4s ease;
+  }
+  .topic-prog-fill.great  { background: var(--success); }
+  .topic-prog-fill.ok     { background: #f59e0b; }
+  .topic-prog-fill.weak   { background: var(--error); }
+  .topic-prog-label {
+    display: flex; justify-content: space-between;
+    font-size: .75rem; margin-top: 3px; color: var(--muted);
+  }
+
+  /* TIMER */
+  .exam-timer {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 1.1rem; font-weight: 800; font-variant-numeric: tabular-nums;
+    padding: 6px 14px; border-radius: 20px;
+    background: var(--primary-light); color: var(--primary);
+    transition: background .3s, color .3s;
+  }
+  .exam-timer.warn { background: #fef3c7; color: #d97706; }
+  .exam-timer.danger { background: var(--error-bg); color: var(--error); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+  .exam-timer.hidden { display: none; }
   .fc-screen-header { text-align: center; padding: 24px 0 20px; }
   .fc-screen-header h2 { font-size: 1.5rem; font-weight: 800; color: var(--primary); margin-bottom: 4px; }
   .fc-screen-header p { color: var(--muted); font-size: .9rem; }
@@ -304,23 +350,8 @@
   </div>
 
   <div class="section-title">Варианты экзамена</div>
-  <div class="cards">
-    <div class="card variant" onclick="startExam('v1')">
-      <div class="card-icon">📝</div>
-      <div class="card-title">Вариант 1</div>
-      <div class="card-sub">8 заданий · 4 варианта ответа</div>
-    </div>
-    <div class="card variant" onclick="startExam('v2')">
-      <div class="card-icon">📝</div>
-      <div class="card-title">Вариант 2</div>
-      <div class="card-sub">8 заданий · 4 варианта ответа</div>
-    </div>
-    <div class="card variant" onclick="startExam('v3')">
-      <div class="card-icon">📝</div>
-      <div class="card-title">Вариант 3</div>
-      <div class="card-sub">8 заданий · 4 варианта ответа</div>
-    </div>
-  </div>
+  <div id="stats-bar-wrap"></div>
+  <div class="cards" id="exam-cards"></div>
 
   <div class="section-title">Теория</div>
   <div class="cards">
@@ -343,8 +374,9 @@
 <!-- EXAM SCREEN -->
 <div class="screen" id="screen-exam">
   <div class="page-header">
-    <button class="back-btn" onclick="goHome()">← Назад</button>
+    <button class="back-btn" onclick="confirmLeaveExam()">← Назад</button>
     <div class="page-title" id="exam-title"></div>
+    <div id="exam-timer" class="exam-timer hidden">⏱ <span id="timer-display">2:00:00</span></div>
     <div class="progress-wrap">
       <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
       <div class="progress-text" id="progress-text">0/0</div>
@@ -366,10 +398,12 @@
     <div class="result-score" id="result-score"></div>
     <div class="result-label" id="result-label"></div>
     <div class="result-grade" id="result-grade"></div>
+    <div id="result-time" style="margin-top:10px;font-size:.9rem;color:var(--muted)"></div>
   </div>
   <div id="answers-review"></div>
-  <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px">
-    <button class="btn-secondary" onclick="retryExam()">Повторить</button>
+  <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap">
+    <button class="btn-secondary" onclick="retryMistakes()" id="btn-retry-mistakes" style="display:none">❌ Только ошибки</button>
+    <button class="btn-secondary" onclick="retryExam()">🔁 Повторить всё</button>
     <button class="btn-primary" onclick="goHome()">На главную</button>
   </div>
 </div>
@@ -1020,7 +1054,188 @@ function renderIn(el) {
 // ═══════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════
+// ── PROGRESS (localStorage) ────────────
+const STORAGE_KEY = 'practicamath_progress';
+
+function loadProgress() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+  catch { return {}; }
+}
+function saveProgress(data) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+}
+
+function recordResult(variantId, correct, total, elapsedSec) {
+  const data = loadProgress();
+  if (!data[variantId]) data[variantId] = { attempts: 0, best: 0, lastDate: null, lastScore: 0, history: [] };
+  const pct = Math.round(correct / total * 100);
+  data[variantId].attempts++;
+  data[variantId].lastScore = pct;
+  data[variantId].lastDate = new Date().toLocaleDateString('ru-RU');
+  if (pct > data[variantId].best) data[variantId].best = pct;
+  data[variantId].history = [...(data[variantId].history || []).slice(-9), { pct, elapsed: elapsedSec, date: data[variantId].lastDate }];
+  saveProgress(data);
+  buildExamCards();
+  buildStatsBar();
+}
+
+function buildExamCards() {
+  const data = loadProgress();
+  const container = document.getElementById('exam-cards');
+  if (!container) return;
+  container.innerHTML = '';
+  const variants = [
+    { id: 'v1', title: 'Вариант 1' },
+    { id: 'v2', title: 'Вариант 2' },
+    { id: 'v3', title: 'Вариант 3' },
+  ];
+  variants.forEach(({ id, title }) => {
+    const p = data[id];
+    const card = document.createElement('div');
+    card.className = 'card variant';
+    card.onclick = () => startExam(id);
+
+    let progressHTML = '';
+    if (p && p.attempts > 0) {
+      const stars = p.best >= 90 ? '⭐⭐⭐' : p.best >= 70 ? '⭐⭐' : '⭐';
+      progressHTML = `
+        <div class="card-progress">
+          <span class="best">${stars} Лучший результат: ${p.best}%</span>
+          <span class="attempts">Попыток: ${p.attempts} · Последний раз: ${p.lastDate}</span>
+        </div>`;
+    } else {
+      progressHTML = `<div class="card-progress"><span class="attempts">Ещё не проходили</span></div>`;
+    }
+
+    card.innerHTML = `
+      <div class="card-icon">📝</div>
+      <div class="card-title">${title}</div>
+      <div class="card-sub">8 заданий · 2 часа</div>
+      ${progressHTML}`;
+    container.appendChild(card);
+  });
+}
+
+function buildStatsBar() {
+  const data = loadProgress();
+  const wrap = document.getElementById('stats-bar-wrap');
+  if (!wrap) return;
+
+  const allAttempts = Object.entries(data)
+    .filter(([k]) => !k.startsWith('topic_'))
+    .reduce((s, [,v]) => s + (v.attempts || 0), 0);
+
+  // collect topic stats
+  const topicStats = Object.entries(data)
+    .filter(([k]) => k.startsWith('topic_'))
+    .map(([k, v]) => ({ id: k.replace('topic_',''), best: v.best, title: TOPICS[k.replace('topic_','')]?.title || k }))
+    .filter(t => t.best !== undefined);
+
+  if (allAttempts === 0 && topicStats.length === 0) { wrap.innerHTML = ''; return; }
+
+  const allBest = Object.entries(data).filter(([k,v]) => !k.startsWith('topic_') && v.attempts > 0).map(([,v]) => v.best);
+  const avgBest = allBest.length ? Math.round(allBest.reduce((a,b) => a+b,0) / allBest.length) : 0;
+  const maxBest = allBest.length ? Math.max(...allBest) : 0;
+
+  // weak topics (best < 80%)
+  const weak = topicStats.filter(t => t.best < 80).sort((a,b) => a.best - b.best).slice(0,3);
+  const weakHTML = weak.length > 0
+    ? `<div style="margin-top:10px;font-size:.82rem">
+        <b style="color:var(--error)">⚠️ Подтянуть:</b>
+        ${weak.map(t => `<span style="display:inline-block;background:var(--error-bg);color:var(--error);border-radius:8px;padding:2px 8px;margin:2px">${t.title} — ${t.best}%</span>`).join('')}
+       </div>`
+    : topicStats.length > 0
+    ? `<div style="margin-top:6px;font-size:.82rem;color:var(--success)">✅ Все пройденные темы на 80%+</div>`
+    : '';
+
+  wrap.innerHTML = `
+    <div class="stats-bar">
+      <div class="stat"><span class="stat-val">${allAttempts}</span><span class="stat-lbl">попыток</span></div>
+      <div class="stat"><span class="stat-val">${avgBest || '—'}${avgBest ? '%' : ''}</span><span class="stat-lbl">средний балл</span></div>
+      <div class="stat"><span class="stat-val">${maxBest || '—'}${maxBest ? '%' : ''}</span><span class="stat-lbl">лучший балл</span></div>
+      <div class="stat" style="cursor:pointer" onclick="clearProgress()" title="Сбросить прогресс">
+        <span class="stat-val" style="font-size:1.1rem">🗑</span><span class="stat-lbl">сбросить</span>
+      </div>
+    </div>
+    ${weakHTML}`;
+}
+
+function clearProgress() {
+  if (confirm('Сбросить весь прогресс?')) {
+    localStorage.removeItem(STORAGE_KEY);
+    buildExamCards();
+    buildStatsBar();
+  }
+}
+
+// Build on page load
+buildExamCards();
+buildStatsBar();
+buildTopicCards();
+
+// ── TIMER ──────────────────────────────
+let timerInterval = null;
+let timerSeconds = 0;
+let timerElapsed = 0;
+const EXAM_DURATION = 2 * 60 * 60; // 2 hours in seconds
+
+function startTimer() {
+  clearInterval(timerInterval);
+  timerSeconds = EXAM_DURATION;
+  timerElapsed = 0;
+  const display = document.getElementById('timer-display');
+  const wrap = document.getElementById('exam-timer');
+  wrap.classList.remove('hidden', 'warn', 'danger');
+  updateTimerDisplay();
+
+  timerInterval = setInterval(() => {
+    timerSeconds--;
+    timerElapsed++;
+    updateTimerDisplay();
+    if (timerSeconds <= 0) {
+      clearInterval(timerInterval);
+      showResults(true); // time's up
+    }
+  }, 1000);
+}
+
+function stopTimer() {
+  clearInterval(timerInterval);
+  document.getElementById('exam-timer').classList.add('hidden');
+}
+
+function updateTimerDisplay() {
+  const s = timerSeconds;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const str = `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  document.getElementById('timer-display').textContent = str;
+  const wrap = document.getElementById('exam-timer');
+  wrap.classList.remove('warn','danger');
+  if (s <= 300) wrap.classList.add('danger');       // last 5 min — red pulse
+  else if (s <= 900) wrap.classList.add('warn');    // last 15 min — yellow
+}
+
+function formatElapsed(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h} ч ${m} мин ${s} сек`;
+  if (m > 0) return `${m} мин ${s} сек`;
+  return `${s} сек`;
+}
+
+function confirmLeaveExam() {
+  if (confirm('Выйти из экзамена? Прогресс будет потерян.')) {
+    stopTimer();
+    goHome();
+  }
+}
+// ───────────────────────────────────────
+
 function goHome() {
+  stopTimer();
   show('screen-home');
 }
 function show(id) {
@@ -1031,11 +1246,13 @@ function show(id) {
 
 function startExam(id) {
   const e = EXAMS[id];
-  load(e.title, e.qs, null);
+  load(e.title, e.qs, null, true);
+  current.variantId = id;
 }
 function startTopic(id) {
   const t = TOPICS[id];
-  load(t.title, t.qs, t.theory);
+  load(t.title, t.qs, t.theory, false);
+  current.topicId = id;
 }
 
 const TOPIC_META = {
@@ -1053,23 +1270,58 @@ const TOPIC_META = {
   stepenn: { icon: '√'  },
 };
 
-(function buildTopicCards() {
+function recordTopicResult(topicId, correct, total) {
+  const data = loadProgress();
+  const key = 'topic_' + topicId;
+  if (!data[key]) data[key] = { attempts: 0, best: 0, last: 0 };
+  const pct = Math.round(correct / total * 100);
+  data[key].attempts++;
+  data[key].last = pct;
+  if (pct > data[key].best) data[key].best = pct;
+  saveProgress(data);
+  buildTopicCards();
+}
+
+function buildTopicCards() {
+  const data = loadProgress();
   const container = document.getElementById('topic-cards');
+  if (!container) return;
+  container.innerHTML = '';
   Object.entries(TOPICS).forEach(([id, t]) => {
     const icon = (TOPIC_META[id] || {}).icon || '📘';
     const card = document.createElement('div');
     card.className = 'card';
     card.onclick = () => startTopic(id);
+
+    const p = data['topic_' + id];
+    let progHTML = '';
+    if (p && p.attempts > 0) {
+      const pct = p.best;
+      const cls = pct >= 80 ? 'great' : pct >= 50 ? 'ok' : 'weak';
+      const emoji = pct >= 80 ? '✅' : pct >= 50 ? '⚠️' : '❌';
+      progHTML = `
+        <div class="topic-prog-bar-wrap">
+          <div class="topic-prog-bar">
+            <div class="topic-prog-fill ${cls}" style="width:${pct}%"></div>
+          </div>
+          <div class="topic-prog-label">
+            <span>${emoji} Лучший: ${pct}%</span>
+            <span>${p.attempts} попыт.</span>
+          </div>
+        </div>`;
+    }
+
     card.innerHTML =
       '<div class="card-icon">' + icon + '</div>' +
       '<div class="card-title">' + t.title + '</div>' +
-      '<div class="card-sub">' + t.qs.length + ' заданий</div>';
+      '<div class="card-sub">' + t.qs.length + ' заданий</div>' +
+      progHTML;
     container.appendChild(card);
   });
-})();
+}
 
-function load(title, qs, theory) {
-  current = { title, qs, theory };
+function load(title, qs, theory, isExam = false) {
+  current = { title, qs, theory, isExam };
   answers = qs.map(() => null);
 
   // shuffle options for each question
@@ -1090,6 +1342,9 @@ function load(title, qs, theory) {
   document.getElementById('exam-title').textContent = title;
   renderQuestions();
   show('screen-exam');
+
+  if (isExam) startTimer();
+  else stopTimer();
 }
 
 function renderQuestions() {
@@ -1199,7 +1454,9 @@ function updateProgress() {
   document.getElementById('progress-text').textContent = `${done}/${total}`;
 }
 
-function showResults() {
+function showResults(timesUp = false) {
+  stopTimer();
+  const elapsed = timerElapsed;
   // Check all remaining
   checkAll();
 
@@ -1228,6 +1485,15 @@ function showResults() {
   g.textContent = `Оценка: ${grade}`;
   g.className = `result-grade ${cls}`;
 
+  const timeEl = document.getElementById('result-time');
+  if (current.isExam && elapsed > 0) {
+    timeEl.innerHTML = timesUp
+      ? `⏰ Время вышло! Затрачено: ${formatElapsed(elapsed)}`
+      : `⏱ Затраченное время: ${formatElapsed(elapsed)}`;
+  } else {
+    timeEl.innerHTML = '';
+  }
+
   const rev = document.getElementById('answers-review');
   rev.innerHTML = '<h3 style="margin-bottom:12px">Разбор</h3>';
   review.forEach(({ q, ok, chosenOpt, correctOpts }) => {
@@ -1246,9 +1512,41 @@ function showResults() {
 
   show('screen-results');
   renderIn(document.getElementById('result-grade').parentElement);
+
+  // show/hide "retry mistakes" button
+  const mistakeQs = review.filter(r => !r.ok).map(r => r.q);
+  const btnMistakes = document.getElementById('btn-retry-mistakes');
+  if (mistakeQs.length > 0) {
+    btnMistakes.style.display = '';
+    btnMistakes.textContent = `❌ Только ошибки (${mistakeQs.length})`;
+    current.mistakeQs = mistakeQs;
+  } else {
+    btnMistakes.style.display = 'none';
+    current.mistakeQs = [];
+  }
+
+  // save progress for exam variants
+  if (current.isExam && current.variantId) {
+    recordResult(current.variantId, correct, total, elapsed);
+  }
+
+  // save progress for topic trainer
+  if (!current.isExam && !current.isMistakes && current.topicId) {
+    recordTopicResult(current.topicId, correct, total);
+  }
+}
+
+function retryMistakes() {
+  const qs = current.mistakeQs;
+  if (!qs || qs.length === 0) return;
+  load(`Работа над ошибками (${qs.length})`, qs, null, false);
+  current.isMistakes = true; // set AFTER load (load resets current)
 }
 
 function retryExam() {
+  const wasExam = current.isExam;
+  const variantId = current.variantId;
+  const topicId = current.topicId;
   answers = current.qs.map(() => null);
   shuffled = current.qs.map(q => {
     const indices = [0,1,2,3];
@@ -1261,8 +1559,13 @@ function retryExam() {
     const correctOpts = correctIndices.map(ci => q.options[ci]);
     return { opts, correctOpts };
   });
+  current.isMistakes = false; // reset mistakes flag
+  if (variantId) current.variantId = variantId;
+  if (topicId) current.topicId = topicId;
   renderQuestions();
   show('screen-exam');
+  if (wasExam) startTimer();
+  else stopTimer();
 }
 
 // ═══════════════════════════════════════
